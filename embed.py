@@ -105,21 +105,22 @@ def get_v_D(u):
     D = []
     new_matrix = copy.deepcopy(u['matrix'])
     new_ops = copy.deepcopy(u['ops'])
-    for i in range(42):
-        new_matrix[i//7][i%7] = 1 - new_matrix[i//7][i%7]
-        new_spec = api.ModelSpec(new_matrix, new_ops)
-        if nasbench.is_valid(new_spec):
-            D.append({
-                'matrix': new_matrix,
-                'ops': new_ops
-            })
-        new_matrix[i//7][i%7] = 1 - new_matrix[i//7][i%7]
+    for i in range(7):
+        for j in range(i+1,7):
+            new_matrix[i][j] = 1 - new_matrix[i][j]
+            new_spec = api.ModelSpec(matrix=new_matrix, ops=new_ops)
+            if nasbench.is_valid(new_spec):
+                D.append({
+                    'matrix': new_matrix,
+                    'ops': new_ops
+                })
+            new_matrix[i][j] = 1 - new_matrix[i][j]
     for i in range(1,6):
         available = [o for o in OPS if o != new_ops[i]]
         for o in available:
             orig_ops = new_ops[i]
             new_ops[i] = o
-            api.ModelSpec(new_matrix, new_ops)
+            api.ModelSpec(matrix=new_matrix, ops=new_ops)
             if nasbench.is_valid(new_spec):
                 D.append({
                     'matrix': new_matrix,
@@ -138,7 +139,7 @@ def create_embed(num=1000):
         u = Cell.random_cell(nasbench)
         # if matrix is unique create a set of matrices with edit distance of 'u' matrix equal to 1
         if unique(u['matrix'], u['ops'], list(chain.from_iterable(embed_data))):
-            D = Cell(**u).get_v_D(nasbench)
+            D = get_v_D(u)
             D.append(u)
             embed_data.append(D)
     Thetas = poincare_embed(embed_data)
@@ -149,14 +150,20 @@ def create_embed(num=1000):
         val_loss = Cell(**embed_data[i]).get_val_loss(nasbench, deterministic=True)
         test_loss = Cell(**embed_data[i]).get_test_loss(nasbench)
         new_embed_data.append((embed_data[i], Thetas[i], val_loss, test_loss))
-    meta_neuralnet = MetaNeuralnet()
-    test_res = meta_neuralnet.cross_validate(np.array([d[1] for d in new_embed_data]), np.array([d[3] for d in new_embed_data]),5)
+    
+    train_error = 0
+    for _ in range(5):
+        meta_neuralnet = MetaNeuralnet()
+        train_error += meta_neuralnet.fit(Thetas, [y[2] for y in new_embed_data])
+
+    train_error /= 5
+    print('train error = {}'.format(train_error))
     end = time.time()
     print('time = {}'.format(end - begin))
     with open('embed.pkl', 'wb') as data:
         pickle.dump(new_embed_data, data)
 
-create_embed(2)
+create_embed(10)
 
 # with open('embed.pkl', 'rb') as f:
 #    embed_data = pickle.load(f)
